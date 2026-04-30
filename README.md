@@ -2,35 +2,97 @@
 
 Projeto GPON - IFT Cadastro Clientes
 
-## Visão geral
+## Visão Geral
 
-Aplicação web para registo de moradias/localizações FTTH e respetivos clientes associados. Cada registo contém os dados da localização, coordenadas GPS e um ou mais clientes cadastrados para essa moradia.
+Aplicação web para cadastro de prédios/residências FTTH e gestão dos clientes associados a cada localização.
+
+A aplicação permite ao operador registar uma residência/prédio, capturar e ajustar coordenadas GPS, e depois adicionar um ou mais clientes a esse registo. O administrador consegue visualizar todos os registos e identificar quem inseriu cada localização.
 
 ## Tecnologia
 
 - Next.js com App Router
 - React e TypeScript
 - Tailwind CSS
-- Leaflet para visualização e ajuste da localização em mapa satélite
-- Base de dados local em ficheiro JSONL, sem dependências externas
+- Leaflet para mapa satélite e ajuste manual do pin
+- Armazenamento local em ficheiro JSONL
+- Autenticação local com cookie assinado
+- Sem dependências de base de dados externa
 
 ## Funcionalidades
 
-- Formulário de registo de localização FTTH.
+- Autenticação por utilizador.
+- Perfis `admin` e `operador`.
+- Listagem de prédios/residências em cards.
+- Criação de prédio/residência em modal.
 - Comboboxes pesquisáveis e dependentes:
   - Ilha
   - Concelho
   - Zona/Cidade
   - Bairro
-- Dados carregados a partir do ficheiro Excel de unidades administrativas.
+- Comboboxes pesquisáveis para tipo e estado da moradia.
 - Captura de coordenadas GPS pelo navegador.
-- Modal com mapa satélite para ajustar manualmente o pin da localização.
-- Suporte a um ou mais clientes por moradia/localização.
-- Gravação local dos registos submetidos.
+- Modal com mapa satélite para ajustar manualmente o pin.
+- Adição de clientes a uma residência/prédio existente.
+- Modal para visualizar os clientes cadastrados numa residência/prédio.
+- Exportação completa dos dados em CSV.
 
-## Dados administrativos
+## Perfis
 
-O ficheiro Excel original foi copiado para:
+### Admin
+
+- Vê todos os prédios/residências.
+- Vê quem inseriu cada localização.
+- Pode adicionar clientes aos registos.
+
+### Operador
+
+- Vê apenas os prédios/residências inseridos pelo próprio utilizador.
+- Pode adicionar clientes apenas aos seus próprios registos.
+
+## Utilizadores
+
+Os utilizadores são configurados diretamente em:
+
+```text
+config/users.json
+```
+
+Exemplo:
+
+```json
+{
+  "username": "operador",
+  "password": "operador123",
+  "name": "Operador",
+  "role": "operador",
+  "active": true
+}
+```
+
+Campos:
+
+- `username`: nome usado no login.
+- `password`: palavra-passe.
+- `name`: nome visível na aplicação.
+- `role`: `admin` ou `operador`.
+- `active`: se `false`, impede o login.
+
+Utilizadores iniciais:
+
+- `admin` / `admin123`
+- `operador` / `operador123`
+
+Em produção, altere as palavras-passe padrão e defina a variável de ambiente `AUTH_SECRET` com um valor forte.
+
+## Sessão
+
+A sessão é guardada em cookie assinado e expira após 30 minutos.
+
+O utilizador também pode terminar a sessão manualmente através do botão `Terminar sessão`.
+
+## Dados Administrativos
+
+O ficheiro Excel original de unidades administrativas foi copiado para:
 
 ```text
 data/source/unidades-administrativas-cabo-verde.xlsx
@@ -42,27 +104,64 @@ A aplicação não lê o Excel diretamente no browser. Os dados foram convertido
 data/locations.ts
 ```
 
-Esta abordagem evita dependências pesadas no frontend e melhora a performance dos comboboxes.
+Hierarquia usada:
 
-## Gravação dos registos
+```text
+Ilha -> Concelho -> Zona/Cidade -> Bairro
+```
 
-Os registos submetidos são guardados localmente em:
+Esta abordagem melhora a performance dos comboboxes e evita dependências pesadas no frontend.
+
+## Armazenamento Local
+
+Os registos são gravados em:
 
 ```text
 storage/registrations.jsonl
 ```
 
-Cada linha do ficheiro representa um registo completo em JSON, incluindo:
+Cada linha contém um registo completo em JSON, incluindo:
 
-- identificador único;
+- ID do registo;
 - data/hora de criação;
-- dados da localização;
+- utilizador que inseriu;
+- localização;
 - coordenadas GPS;
 - lista de clientes associados.
 
-A pasta `storage/` está no `.gitignore` para evitar versionar dados reais de clientes.
+A pasta `storage/` está no `.gitignore` para evitar versionar dados reais.
 
-## Como executar
+## Exportação
+
+Todos os dados podem ser exportados em CSV através do endpoint:
+
+```text
+/api/export
+```
+
+O endpoint não exige autenticação e devolve um ficheiro legível em Excel/LibreOffice.
+
+Formato:
+
+- Uma linha por cliente.
+- Se uma residência/prédio ainda não tiver clientes, a localização aparece com campos de cliente vazios.
+- Inclui identificação do utilizador que inseriu a localização.
+
+Por expor todos os dados cadastrados, este endpoint deve ser protegido ao nível da rede, proxy reverso ou firewall quando usado em produção.
+
+## Endpoints
+
+```text
+GET  /api/auth/me
+POST /api/auth/login
+POST /api/auth/logout
+GET  /api/registrations
+POST /api/registrations
+PATCH /api/registrations
+GET  /api/export
+```
+
+## Como Executar
 
 Instalar dependências:
 
@@ -76,20 +175,61 @@ Executar em modo desenvolvimento:
 npm run dev
 ```
 
-Abrir no navegador:
-
-```text
-http://127.0.0.1:3000
-```
-
 Gerar build de produção:
 
 ```bash
 npm run build
 ```
 
-## Observações
+Executar build de produção:
 
-A captura de GPS requer permissão do navegador. Em produção, a geolocalização deve ser servida em contexto seguro, normalmente HTTPS.
+```bash
+npm run start
+```
 
-O mapa satélite usa tiles externos da Esri World Imagery para visualização da localização.
+Por padrão, os scripts `dev` e `start` escutam em:
+
+```text
+0.0.0.0
+```
+
+## GPS e HTTPS
+
+A captura de GPS requer contexto seguro no navegador.
+
+Funciona em:
+
+- `https://...`
+- `http://localhost`
+
+Normalmente não funciona em:
+
+- `http://IP_DO_SERVIDOR`
+- `http://dominio-sem-https`
+
+Em produção, coloque a aplicação atrás de HTTPS, por exemplo com Nginx e Certbot/Let's Encrypt.
+
+## Mapa Satélite
+
+O mapa usa tiles externos da Esri World Imagery para visualização em camada satélite.
+
+O operador pode:
+
+- capturar GPS;
+- abrir o mapa;
+- arrastar o marcador;
+- clicar no mapa para reposicionar o pin;
+- confirmar a localização ajustada.
+
+## Ficheiros Importantes
+
+```text
+app/page.tsx
+app/autenticacao/page.tsx
+app/api/registrations/route.ts
+app/api/export/route.ts
+lib/auth.ts
+config/users.json
+data/locations.ts
+storage/registrations.jsonl
+```

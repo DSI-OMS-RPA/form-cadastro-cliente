@@ -3,16 +3,16 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import {
   Check,
   ChevronsUpDown,
+  HomeIcon,
   Loader2,
   LocateFixed,
   MapPin,
   Plus,
   Search,
-  ShieldCheck,
-  Trash2,
   X,
 } from "lucide-react";
 import { locations } from "@/data/locations";
@@ -42,12 +42,59 @@ type Coordinates = {
   accuracy: string;
 };
 
-type ClientForm = {
-  id: number;
+type RegistrationRecord = {
+  id: string;
+  createdAt: string;
+  updatedAt?: string;
+  location: {
+    island: string;
+    council: string;
+    zone: string;
+    neighborhood: string;
+    street?: string;
+    doorReference?: string;
+    housingType: string;
+    housingStatus: string;
+    apartmentCount?: string;
+    gps: {
+      latitude: string;
+      longitude: string;
+      accuracy?: string;
+    };
+  };
+  clients: {
+    name: string;
+    phone?: string;
+    nif?: string;
+    document?: string;
+    serviceNumber?: string;
+    floor?: string;
+    apartmentLocation?: string;
+  }[];
+  createdBy?: {
+    username: string;
+    name: string;
+    role: string;
+  };
+};
+
+type CurrentUser = {
+  username: string;
+  name: string;
+  role: "admin" | "operador";
 };
 
 export default function Home() {
+  const router = useRouter();
   const [isMounted, setIsMounted] = useState(false);
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [registrations, setRegistrations] = useState<RegistrationRecord[]>([]);
+  const [isLoadingRegistrations, setIsLoadingRegistrations] = useState(true);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [clientTargetId, setClientTargetId] = useState<string | null>(null);
+  const [clientsViewTargetId, setClientsViewTargetId] = useState<string | null>(null);
+  const [clientSubmitState, setClientSubmitState] = useState<"idle" | "saving" | "success" | "error">("idle");
+  const [clientSubmitMessage, setClientSubmitMessage] = useState("");
   const [coordinates, setCoordinates] = useState<Coordinates>({
     latitude: "",
     longitude: "",
@@ -59,7 +106,6 @@ export default function Home() {
   const [selectedNeighborhood, setSelectedNeighborhood] = useState("");
   const [selectedHousingType, setSelectedHousingType] = useState("");
   const [selectedHousingStatus, setSelectedHousingStatus] = useState("");
-  const [clients, setClients] = useState<ClientForm[]>([{ id: 1 }]);
   const [gpsState, setGpsState] = useState<"idle" | "loading" | "error">("idle");
   const [gpsErrorMessage, setGpsErrorMessage] = useState("");
   const [isMapOpen, setIsMapOpen] = useState(false);
@@ -69,7 +115,42 @@ export default function Home() {
 
   useEffect(() => {
     setIsMounted(true);
+    initializeSession();
   }, []);
+
+  async function initializeSession() {
+    const response = await fetch("/api/auth/me", { cache: "no-store" });
+    if (!response.ok) {
+      router.replace("/autenticacao");
+      return;
+    }
+
+    const payload = (await response.json()) as { user: CurrentUser };
+    setCurrentUser(payload.user);
+    await loadRegistrations();
+  }
+
+  async function loadRegistrations() {
+    setIsLoadingRegistrations(true);
+
+    try {
+      const response = await fetch("/api/registrations", { cache: "no-store" });
+      if (response.status === 401) {
+        router.replace("/autenticacao");
+        return;
+      }
+
+      const payload = (await response.json()) as { registrations?: RegistrationRecord[] };
+      setRegistrations(payload.registrations ?? []);
+    } finally {
+      setIsLoadingRegistrations(false);
+    }
+  }
+
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.replace("/autenticacao");
+  }
 
   function getGpsLocation() {
     setGpsErrorMessage("");
@@ -156,7 +237,7 @@ export default function Home() {
     setSubmitMessage("");
 
     const formData = new FormData(form);
-    const payload = buildRegistrationPayload(formData, clients.length);
+    const payload = buildRegistrationPayload(formData);
 
     try {
       const response = await fetch("/api/registrations", {
@@ -175,9 +256,59 @@ export default function Home() {
       setSubmitState("success");
       setSubmitMessage(`Localização registada com sucesso. Referência: ${result.id}`);
       resetForm(form);
+      setIsCreateOpen(false);
+      await loadRegistrations();
     } catch (error) {
       setSubmitState("error");
       setSubmitMessage(error instanceof Error ? error.message : "Não foi possível gravar o registo.");
+    }
+  }
+
+  async function handleAddClient(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!clientTargetId) {
+      return;
+    }
+
+    setClientSubmitState("saving");
+    setClientSubmitMessage("");
+
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    const read = (name: string) => String(formData.get(name) ?? "").trim();
+
+    try {
+      const response = await fetch("/api/registrations", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id: clientTargetId,
+          client: {
+            name: read("name"),
+            phone: read("phone"),
+            nif: read("nif"),
+            document: read("document"),
+            serviceNumber: read("serviceNumber"),
+            floor: read("floor"),
+            apartmentLocation: read("apartmentLocation"),
+          },
+        }),
+      });
+
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(result.error || "Não foi possível adicionar o cliente.");
+      }
+
+      form.reset();
+      setClientSubmitState("success");
+      setClientSubmitMessage("Cliente adicionado com sucesso.");
+      await loadRegistrations();
+    } catch (error) {
+      setClientSubmitState("error");
+      setClientSubmitMessage(error instanceof Error ? error.message : "Não foi possível adicionar o cliente.");
     }
   }
 
@@ -190,19 +321,10 @@ export default function Home() {
     setSelectedNeighborhood("");
     setSelectedHousingType("");
     setSelectedHousingStatus("");
-    setClients([{ id: Date.now() }]);
     setGpsState("idle");
     setGpsErrorMessage("");
     setIsMapOpen(false);
     setLocationError(false);
-  }
-
-  function addClient() {
-    setClients((current) => [...current, { id: Date.now() }]);
-  }
-
-  function removeClient(id: number) {
-    setClients((current) => current.filter((client) => client.id !== id));
   }
 
   const councils = locations.find((location) => location.island === selectedIsland)?.councils ?? [];
@@ -215,12 +337,8 @@ export default function Home() {
 
   return (
     <main className="flex min-h-screen items-start justify-start overflow-x-hidden px-4 py-8 text-slate-700 sm:justify-center sm:py-12">
-      <div className="w-full min-w-0 max-w-[358px] sm:max-w-[604px]">
+      <div className="w-full min-w-0 max-w-[358px] sm:max-w-[1180px]">
         <header className="mb-10 text-center">
-          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-[#e8f2fc] text-brand-blue">
-            <MapPin className="h-7 w-7 fill-brand-blue stroke-brand-blue" aria-hidden="true" />
-          </div>
-
           <div className="mx-auto mb-5 flex h-[58px] w-[250px] max-w-full items-center justify-center">
             <Image
               src="/cvt_logo.png"
@@ -240,72 +358,151 @@ export default function Home() {
             <span className="hidden sm:inline">Registo de Localização</span>
             <span className="block">FTTH</span>
           </h1>
-          <p className="mx-auto mt-4 max-w-[350px] text-[15px] leading-7 text-slate-600 sm:max-w-[520px]">
-            Preencha os dados abaixo para registar a sua morada. A sua localização será utilizada
-            para planear a Rede FTTH.
-          </p>
         </header>
 
-        <form
+        {currentUser && (
+          <section className="mb-4 flex flex-col gap-3 rounded-[10px] border border-slate-200 bg-white p-4 shadow-form sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-900">{currentUser.name}</p>
+              <p className="text-xs uppercase tracking-[0.12em] text-slate-500">{currentUser.role}</p>
+            </div>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="h-10 rounded-md border border-slate-200 px-4 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-blue-100"
+            >
+              Terminar sessão
+            </button>
+          </section>
+        )}
+
+        <section className="mb-6 flex flex-col gap-3 rounded-[10px] border border-slate-200 bg-white p-4 shadow-form sm:flex-row sm:items-center sm:justify-between sm:p-5">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">Prédios e residências</h2>
+            <p className="text-sm text-slate-500">
+              {registrations.length} registo{registrations.length === 1 ? "" : "s"} cadastrado
+              {registrations.length === 1 ? "" : "s"}.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setSubmitState("idle");
+              setSubmitMessage("");
+              setIsCreateOpen(true);
+            }}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-brand-blue px-4 text-sm font-bold text-white transition hover:bg-brand-blueDark focus:outline-none focus:ring-4 focus:ring-blue-100"
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            Novo prédio/residência
+          </button>
+        </section>
+
+        {isLoadingRegistrations ? (
+          <div className="rounded-[10px] border border-slate-200 bg-white p-6 text-center text-sm text-slate-500 shadow-form">
+            A carregar registos...
+          </div>
+        ) : registrations.length > 0 ? (
+          <section className="grid gap-4 lg:grid-cols-2">
+            {registrations.map((registration) => (
+              <RegistrationCard
+                key={registration.id}
+                registration={registration}
+                showCreatedBy={currentUser?.role === "admin"}
+                onAddClient={() => {
+                  setClientSubmitState("idle");
+                  setClientSubmitMessage("");
+                  setClientTargetId(registration.id);
+                }}
+                onViewClients={() => setClientsViewTargetId(registration.id)}
+              />
+            ))}
+          </section>
+        ) : (
+          <div className="rounded-[10px] border border-dashed border-slate-300 bg-white p-8 text-center shadow-form">
+            <HomeIcon className="mx-auto mb-3 h-8 w-8 text-slate-400" aria-hidden="true" />
+            <h2 className="text-base font-bold text-slate-800">Ainda não existem prédios/residências</h2>
+            <p className="mt-1 text-sm text-slate-500">Crie o primeiro registo para começar o cadastro.</p>
+          </div>
+        )}
+
+        {isCreateOpen && (
+          <div className="fixed inset-0 z-40 overflow-y-auto bg-slate-950/60 px-4 py-6">
+            <div className="mx-auto w-full max-w-[920px]">
+              <div className="mb-3 flex items-center justify-between rounded-[10px] border border-slate-200 bg-white px-4 py-3 shadow-form">
+                <h2 className="text-base font-bold text-slate-900">Novo prédio/residência</h2>
+                <button
+                  type="button"
+                  onClick={() => setIsCreateOpen(false)}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-blue-100"
+                  aria-label="Fechar formulário"
+                >
+                  <X className="h-4 w-4" aria-hidden="true" />
+                </button>
+              </div>
+
+              <form
           onSubmit={handleSubmit}
           className="rounded-[10px] border border-slate-200 bg-white px-8 py-9 shadow-form sm:px-9"
         >
           <SectionTitle>Localização</SectionTitle>
 
-          <Field label="Ilha" required>
-            <SearchableSelect
-              name="island"
-              placeholder="Pesquise ou selecione a ilha"
-              value={selectedIsland}
-              options={locations.map((location) => location.island)}
-              onChange={(value) => {
-                setSelectedIsland(value);
-                setSelectedCouncil("");
-                setSelectedZone("");
-                setSelectedNeighborhood("");
-              }}
-            />
-          </Field>
+          <div className="grid gap-x-4 sm:grid-cols-2">
+            <Field label="Ilha" required>
+              <SearchableSelect
+                name="island"
+                placeholder="Pesquise ou selecione a ilha"
+                value={selectedIsland}
+                options={locations.map((location) => location.island)}
+                onChange={(value) => {
+                  setSelectedIsland(value);
+                  setSelectedCouncil("");
+                  setSelectedZone("");
+                  setSelectedNeighborhood("");
+                }}
+              />
+            </Field>
 
-          <Field label="Concelho" required>
-            <SearchableSelect
-              name="council"
-              placeholder={selectedIsland ? "Pesquise ou selecione o concelho" : "Selecione primeiro a ilha"}
-              value={selectedCouncil}
-              options={councils.map((council) => council.name)}
-              disabled={!selectedIsland}
-              onChange={(value) => {
-                setSelectedCouncil(value);
-                setSelectedZone("");
-                setSelectedNeighborhood("");
-              }}
-            />
-          </Field>
+            <Field label="Concelho" required>
+              <SearchableSelect
+                name="council"
+                placeholder={selectedIsland ? "Pesquise ou selecione o concelho" : "Selecione primeiro a ilha"}
+                value={selectedCouncil}
+                options={councils.map((council) => council.name)}
+                disabled={!selectedIsland}
+                onChange={(value) => {
+                  setSelectedCouncil(value);
+                  setSelectedZone("");
+                  setSelectedNeighborhood("");
+                }}
+              />
+            </Field>
 
-          <Field label="Zona/Cidade" required>
-            <SearchableSelect
-              name="zone"
-              placeholder={selectedCouncil ? "Pesquise ou selecione a zona/cidade" : "Selecione primeiro o concelho"}
-              value={selectedZone}
-              options={zones.map((zone) => zone.name)}
-              disabled={!selectedCouncil}
-              onChange={(value) => {
-                setSelectedZone(value);
-                setSelectedNeighborhood("");
-              }}
-            />
-          </Field>
+            <Field label="Zona/Cidade" required>
+              <SearchableSelect
+                name="zone"
+                placeholder={selectedCouncil ? "Pesquise ou selecione a zona/cidade" : "Selecione primeiro o concelho"}
+                value={selectedZone}
+                options={zones.map((zone) => zone.name)}
+                disabled={!selectedCouncil}
+                onChange={(value) => {
+                  setSelectedZone(value);
+                  setSelectedNeighborhood("");
+                }}
+              />
+            </Field>
 
-          <Field label="Bairro" required>
-            <SearchableSelect
-              name="neighborhood"
-              placeholder={selectedZone ? "Pesquise ou selecione o bairro" : "Selecione primeiro a zona/cidade"}
-              value={selectedNeighborhood}
-              options={neighborhoods}
-              disabled={!selectedZone}
-              onChange={(value) => setSelectedNeighborhood(value)}
-            />
-          </Field>
+            <Field label="Bairro" required>
+              <SearchableSelect
+                name="neighborhood"
+                placeholder={selectedZone ? "Pesquise ou selecione o bairro" : "Selecione primeiro a zona/cidade"}
+                value={selectedNeighborhood}
+                options={neighborhoods}
+                disabled={!selectedZone}
+                onChange={(value) => setSelectedNeighborhood(value)}
+              />
+            </Field>
+          </div>
 
           {locationError && (
             <p className="-mt-2 mb-5 text-sm text-red-600">
@@ -321,14 +518,30 @@ export default function Home() {
             <input name="doorNumber" placeholder="Ex: 12A, em frente à escola" className="field-input" />
           </Field>
 
-          <Field label="Tipo de Moradia" required>
-            <SearchableSelect
-              name="housingType"
-              placeholder="Pesquise ou selecione o tipo de moradia"
-              value={selectedHousingType}
-              options={housingTypes}
-              onChange={setSelectedHousingType}
-            />
+          <div className="grid gap-x-4 sm:grid-cols-2">
+            <Field label="Tipo de Moradia" required>
+              <SearchableSelect
+                name="housingType"
+                placeholder="Pesquise ou selecione o tipo de moradia"
+                value={selectedHousingType}
+                options={housingTypes}
+                onChange={setSelectedHousingType}
+              />
+            </Field>
+
+            <Field label="Estado da Moradia" required>
+              <SearchableSelect
+                name="housingStatus"
+                placeholder="Pesquise ou selecione o estado da moradia"
+                value={selectedHousingStatus}
+                options={housingStatus}
+                onChange={setSelectedHousingStatus}
+              />
+            </Field>
+          </div>
+
+          <Field label="Número de apartamento">
+            <input min="0" name="apartmentCount" type="number" placeholder="Ex: 8" className="field-input" />
           </Field>
 
           <div className="mb-7">
@@ -408,123 +621,7 @@ export default function Home() {
             )}
           </div>
 
-          <Field label="Número de apartamento">
-            <input min="0" name="apartmentCount" type="number" placeholder="Ex: 8" className="field-input" />
-          </Field>
-
-          <Field label="Estado da Moradia" required>
-            <SearchableSelect
-              name="housingStatus"
-              placeholder="Pesquise ou selecione o estado da moradia"
-              value={selectedHousingStatus}
-              options={housingStatus}
-              onChange={setSelectedHousingStatus}
-            />
-          </Field>
-
           <Divider />
-
-          <div className="mb-5 flex items-center justify-between gap-3">
-            <SectionTitle compact>Clientes</SectionTitle>
-            <button
-              type="button"
-              onClick={addClient}
-              className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-md border border-[#1476cf] bg-[#f4f9ff] px-3 text-[14px] font-semibold text-brand-blue transition hover:bg-[#e9f4ff] focus:outline-none focus:ring-4 focus:ring-blue-100"
-            >
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              Adicionar cliente
-            </button>
-          </div>
-
-          <div className="grid gap-5">
-            {clients.map((client, index) => (
-              <div
-                key={client.id}
-                className="rounded-md border border-slate-200 bg-slate-50/40 p-4 sm:p-5"
-              >
-                <div className="mb-4 flex items-center justify-between gap-3">
-                  <h3 className="text-[14px] font-bold text-slate-700">Cliente {index + 1}</h3>
-                  {clients.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => removeClient(client.id)}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-red-200 bg-white text-red-600 transition hover:bg-red-50 focus:outline-none focus:ring-4 focus:ring-red-100"
-                      aria-label={`Remover cliente ${index + 1}`}
-                    >
-                      <Trash2 className="h-4 w-4" aria-hidden="true" />
-                    </button>
-                  )}
-                </div>
-
-                <Field label="Nome completo" required>
-                  <input
-                    required
-                    name={`clients[${index}].name`}
-                    placeholder="Ex: João Manuel Silva"
-                    className="field-input"
-                  />
-                </Field>
-
-                <Field label="Telefone / WhatsApp">
-                  <input
-                    name={`clients[${index}].phone`}
-                    placeholder="Ex: 991 34 67"
-                    className="field-input"
-                  />
-                </Field>
-
-                <Field label="NIF">
-                  <input
-                    name={`clients[${index}].nif`}
-                    placeholder="Ex: 123456789"
-                    className="field-input"
-                  />
-                </Field>
-
-                <Field label="CNI/BI">
-                  <input
-                    name={`clients[${index}].document`}
-                    placeholder="Ex: 123456"
-                    className="field-input"
-                  />
-                </Field>
-
-                <Field label="Número de cliente/serviço">
-                  <input
-                    name={`clients[${index}].serviceNumber`}
-                    placeholder="Ex: 1002456"
-                    className="field-input"
-                  />
-                </Field>
-
-                <Field label="Piso">
-                  <input
-                    name={`clients[${index}].floor`}
-                    placeholder="Ex: 2"
-                    className="field-input"
-                  />
-                </Field>
-
-                <Field label="Localização do apartamento (piso)">
-                  <input
-                    name={`clients[${index}].apartmentLocation`}
-                    placeholder="Ex: Frente direita"
-                    className="field-input"
-                  />
-                </Field>
-              </div>
-            ))}
-          </div>
-
-          <Divider />
-
-          <div className="mb-7 flex gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-4 text-[14px] leading-6 text-amber-800">
-            <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
-            <p>
-              Os seus dados são recolhidos exclusivamente para efeitos de planeamento da rede FTTH.
-              Não serão partilhados com terceiros nem utilizados para outros fins.
-            </p>
-          </div>
 
           {submitState === "success" && (
             <p className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-center text-sm font-medium text-emerald-700">
@@ -543,12 +640,35 @@ export default function Home() {
             disabled={submitState === "saving"}
             className="h-[54px] w-full rounded-md bg-brand-blue text-[17px] font-bold text-white transition hover:bg-brand-blueDark focus:outline-none focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-70"
           >
-            {submitState === "saving" ? "A gravar..." : "Registar Localização"}
+            {submitState === "saving" ? "A gravar..." : "Registar"}
           </button>
-        </form>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {clientTargetId && (
+          <ClientFormModal
+            registration={registrations.find((registration) => registration.id === clientTargetId)}
+            submitState={clientSubmitState}
+            submitMessage={clientSubmitMessage}
+            onClose={() => {
+              setClientTargetId(null);
+              setClientSubmitState("idle");
+              setClientSubmitMessage("");
+            }}
+            onSubmit={handleAddClient}
+          />
+        )}
+
+        {clientsViewTargetId && (
+          <ClientsListModal
+            registration={registrations.find((registration) => registration.id === clientsViewTargetId)}
+            onClose={() => setClientsViewTargetId(null)}
+          />
+        )}
 
         <footer className="mx-auto mt-7 max-w-[410px] text-center text-[13px] leading-5 text-slate-500">
-          <p>Os dados são enviados de forma segura e guardados numa base de dados privada.</p>
           <p>Se tiver dúvidas, contacte a nossa equipa de suporte.</p>
         </footer>
 
@@ -589,7 +709,7 @@ function getGeolocationErrorMessage(error: GeolocationPositionError) {
   return "Não foi possível obter a localização. Confirme a permissão do navegador.";
 }
 
-function buildRegistrationPayload(formData: FormData, clientCount: number) {
+function buildRegistrationPayload(formData: FormData) {
   const read = (name: string) => String(formData.get(name) ?? "").trim();
 
   return {
@@ -609,16 +729,234 @@ function buildRegistrationPayload(formData: FormData, clientCount: number) {
         accuracy: read("gpsAccuracy"),
       },
     },
-    clients: Array.from({ length: clientCount }, (_, index) => ({
-      name: read(`clients[${index}].name`),
-      phone: read(`clients[${index}].phone`),
-      nif: read(`clients[${index}].nif`),
-      document: read(`clients[${index}].document`),
-      serviceNumber: read(`clients[${index}].serviceNumber`),
-      floor: read(`clients[${index}].floor`),
-      apartmentLocation: read(`clients[${index}].apartmentLocation`),
-    })),
+    clients: [],
   };
+}
+
+function RegistrationCard({
+  registration,
+  showCreatedBy,
+  onAddClient,
+  onViewClients,
+}: {
+  registration: RegistrationRecord;
+  showCreatedBy: boolean;
+  onAddClient: () => void;
+  onViewClients: () => void;
+}) {
+  const addressParts = [
+    registration.location.neighborhood,
+    registration.location.zone,
+    registration.location.council,
+    registration.location.island,
+  ].filter(Boolean);
+
+  return (
+    <article className="rounded-[10px] border border-slate-200 bg-white p-5 shadow-form">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <div className="mb-2 flex items-center gap-2">
+            <HomeIcon className="h-5 w-5 text-brand-blue" aria-hidden="true" />
+            <h2 className="text-lg font-bold text-slate-900">
+              {registration.location.housingType || "Prédio/residência"}
+            </h2>
+          </div>
+          <p className="text-sm leading-6 text-slate-600">{addressParts.join(", ")}</p>
+          {(registration.location.street || registration.location.doorReference) && (
+            <p className="mt-1 text-sm text-slate-500">
+              {[registration.location.street, registration.location.doorReference].filter(Boolean).join(" - ")}
+            </p>
+          )}
+        </div>
+
+        <div className="flex shrink-0 flex-col gap-2 sm:items-end">
+          <button
+            type="button"
+            onClick={onAddClient}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-[#1476cf] bg-[#f4f9ff] px-3 text-sm font-semibold text-brand-blue transition hover:bg-[#e9f4ff] focus:outline-none focus:ring-4 focus:ring-blue-100"
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            Adicionar cliente
+          </button>
+          <button
+            type="button"
+            onClick={onViewClients}
+            className="h-9 rounded-md border border-slate-200 px-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-blue-100"
+          >
+            Ver clientes
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 border-t border-slate-100 pt-4 sm:grid-cols-2 xl:grid-cols-4">
+        <InfoItem label="Estado" value={registration.location.housingStatus} />
+        <InfoItem label="Clientes cadastrados" value={String(registration.clients.length)} />
+        <InfoItem
+          label="GPS"
+          value={`${registration.location.gps.latitude}, ${registration.location.gps.longitude}`}
+        />
+        {showCreatedBy && (
+          <InfoItem
+            label="Inserido por"
+            value={registration.createdBy?.name || registration.createdBy?.username || "Desconhecido"}
+          />
+        )}
+      </div>
+    </article>
+  );
+}
+
+function InfoItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">{label}</p>
+      <p className="mt-1 break-words text-sm font-semibold text-slate-800">{value || "-"}</p>
+    </div>
+  );
+}
+
+function ClientFormModal({
+  registration,
+  submitState,
+  submitMessage,
+  onClose,
+  onSubmit,
+}: {
+  registration?: RegistrationRecord;
+  submitState: "idle" | "saving" | "success" | "error";
+  submitMessage: string;
+  onClose: () => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/60 px-4 py-6">
+      <div className="mx-auto w-full max-w-[520px]">
+        <form onSubmit={onSubmit} className="rounded-[10px] border border-slate-200 bg-white p-6 shadow-2xl">
+          <div className="mb-5 flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">Adicionar cliente</h2>
+              <p className="text-sm text-slate-500">
+                {registration
+                  ? `${registration.location.neighborhood}, ${registration.location.zone}`
+                  : "Prédio/residência selecionado"}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-blue-100"
+              aria-label="Fechar"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </div>
+
+          <Field label="Nome completo" required>
+            <input required name="name" placeholder="Ex: João Manuel Silva" className="field-input" />
+          </Field>
+          <Field label="Telefone / WhatsApp">
+            <input name="phone" placeholder="Ex: 991 34 67" className="field-input" />
+          </Field>
+
+          <div className="grid gap-x-4 sm:grid-cols-2">
+            <Field label="NIF">
+              <input name="nif" placeholder="Ex: 123456789" className="field-input" />
+            </Field>
+            <Field label="CNI/BI">
+              <input name="document" placeholder="Ex: 123456" className="field-input" />
+            </Field>
+          </div>
+
+          <Field label="Número de cliente/serviço">
+            <input name="serviceNumber" placeholder="Ex: 1002456" className="field-input" />
+          </Field>
+          <Field label="Piso">
+            <input name="floor" placeholder="Ex: 2" className="field-input" />
+          </Field>
+          <Field label="Localização do apartamento (piso)">
+            <input name="apartmentLocation" placeholder="Ex: Frente direita" className="field-input" />
+          </Field>
+
+          {submitState === "error" && (
+            <p className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+              {submitMessage}
+            </p>
+          )}
+
+          {submitState === "success" && (
+            <p className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+              {submitMessage}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            disabled={submitState === "saving"}
+            className="h-11 w-full rounded-md bg-brand-blue text-sm font-bold text-white transition hover:bg-brand-blueDark focus:outline-none focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            {submitState === "saving" ? "A gravar..." : "Adicionar cliente"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function ClientsListModal({
+  registration,
+  onClose,
+}: {
+  registration?: RegistrationRecord;
+  onClose: () => void;
+}) {
+  const clients = registration?.clients ?? [];
+
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/60 px-4 py-6">
+      <div className="mx-auto w-full max-w-[720px] rounded-[10px] border border-slate-200 bg-white p-6 shadow-2xl">
+        <div className="mb-5 flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">Clientes cadastrados</h2>
+            <p className="text-sm text-slate-500">
+              {registration
+                ? `${registration.location.neighborhood}, ${registration.location.zone}`
+                : "Prédio/residência selecionado"}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-blue-100"
+            aria-label="Fechar"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
+
+        {clients.length > 0 ? (
+          <div className="grid gap-3">
+            {clients.map((client, index) => (
+              <div key={`${client.name}-${index}`} className="rounded-md border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm font-bold text-slate-900">{client.name}</p>
+                <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+                  <InfoItem label="Telefone" value={client.phone || "-"} />
+                  <InfoItem label="Número de cliente/serviço" value={client.serviceNumber || "-"} />
+                  <InfoItem label="NIF" value={client.nif || "-"} />
+                  <InfoItem label="CNI/BI" value={client.document || "-"} />
+                  <InfoItem label="Piso" value={client.floor || "-"} />
+                  <InfoItem label="Localização do apartamento" value={client.apartmentLocation || "-"} />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-center text-sm text-slate-500">
+            Ainda não há clientes associados a este prédio/residência.
+          </p>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function SectionTitle({
