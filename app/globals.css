@@ -1,0 +1,39 @@
+@import "leaflet/dist/leaflet.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  background: #f5f8fc;
+  color: #1e293b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  background:
+    radial-gradient(circle at top, rgba(226, 239, 252, 0.7), transparent 34rem),
+    #f5f8fc;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+@layer components {
+  .field-input {
+    @apply h-12 w-full rounded-md border border-slate-200 bg-slate-50 px-4 text-[15px] text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#1476cf] focus:bg-white focus:ring-4 focus:ring-blue-100;
+  }
+}
