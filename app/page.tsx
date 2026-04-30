@@ -61,6 +61,7 @@ export default function Home() {
   const [selectedHousingStatus, setSelectedHousingStatus] = useState("");
   const [clients, setClients] = useState<ClientForm[]>([{ id: 1 }]);
   const [gpsState, setGpsState] = useState<"idle" | "loading" | "error">("idle");
+  const [gpsErrorMessage, setGpsErrorMessage] = useState("");
   const [isMapOpen, setIsMapOpen] = useState(false);
   const [locationError, setLocationError] = useState(false);
   const [submitState, setSubmitState] = useState<"idle" | "saving" | "success" | "error">("idle");
@@ -71,7 +72,18 @@ export default function Home() {
   }, []);
 
   function getGpsLocation() {
+    setGpsErrorMessage("");
+
+    if (!window.isSecureContext) {
+      setGpsErrorMessage(
+        "A geolocalização só funciona em HTTPS ou localhost. Aceda à aplicação por HTTPS para o navegador pedir permissão.",
+      );
+      setGpsState("error");
+      return;
+    }
+
     if (!navigator.geolocation) {
+      setGpsErrorMessage("Este navegador não suporta geolocalização.");
       setGpsState("error");
       return;
     }
@@ -110,8 +122,9 @@ export default function Home() {
           finish();
         }
       },
-      () => {
+      (error) => {
         window.clearTimeout(timer);
+        setGpsErrorMessage(getGeolocationErrorMessage(error));
         finish();
       },
       {
@@ -179,6 +192,7 @@ export default function Home() {
     setSelectedHousingStatus("");
     setClients([{ id: Date.now() }]);
     setGpsState("idle");
+    setGpsErrorMessage("");
     setIsMapOpen(false);
     setLocationError(false);
   }
@@ -389,7 +403,7 @@ export default function Home() {
             )}
             {gpsState === "error" && (
               <p className="mt-2 text-sm text-red-600">
-                Não foi possível obter a localização. Confirme a permissão do navegador.
+                {gpsErrorMessage || "Não foi possível obter a localização. Confirme a permissão do navegador."}
               </p>
             )}
           </div>
@@ -557,6 +571,22 @@ export default function Home() {
       </div>
     </main>
   );
+}
+
+function getGeolocationErrorMessage(error: GeolocationPositionError) {
+  if (error.code === error.PERMISSION_DENIED) {
+    return "Permissão de localização negada. Ative a localização nas permissões do navegador para este site.";
+  }
+
+  if (error.code === error.POSITION_UNAVAILABLE) {
+    return "A localização não está disponível neste dispositivo ou rede. Tente ativar o GPS/Wi-Fi e repetir.";
+  }
+
+  if (error.code === error.TIMEOUT) {
+    return "O navegador demorou demasiado a obter a localização. Tente novamente num local com melhor sinal.";
+  }
+
+  return "Não foi possível obter a localização. Confirme a permissão do navegador.";
 }
 
 function buildRegistrationPayload(formData: FormData, clientCount: number) {
