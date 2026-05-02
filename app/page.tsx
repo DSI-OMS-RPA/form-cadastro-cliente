@@ -64,6 +64,7 @@ type RegistrationRecord = {
   };
   clients: {
     name: string;
+    gender?: string;
     phone?: string;
     nif?: string;
     document?: string;
@@ -287,6 +288,7 @@ export default function Home() {
           id: clientTargetId,
           client: {
             name: read("name"),
+            gender: read("gender"),
             phone: read("phone"),
             nif: read("nif"),
             document: read("document"),
@@ -345,7 +347,8 @@ export default function Home() {
               alt="CVTelecom"
               width={217}
               height={59}
-              className="h-auto w-full max-w-[217px]"
+              style={{ height: "auto" }}
+              className="w-full max-w-[217px]"
               priority
             />
           </div>
@@ -815,6 +818,8 @@ function InfoItem({ label, value }: { label: string; value: string }) {
   );
 }
 
+const GENDER_OPTIONS = ["Masculino", "Feminino"];
+
 function ClientFormModal({
   registration,
   submitState,
@@ -828,6 +833,14 @@ function ClientFormModal({
   onClose: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const [clientGender, setClientGender] = useState("");
+
+  useEffect(() => {
+    if (submitState === "success") {
+      setClientGender("");
+    }
+  }, [submitState]);
+
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/60 px-4 py-6">
       <div className="mx-auto w-full max-w-[520px]">
@@ -854,6 +867,17 @@ function ClientFormModal({
           <Field label="Nome completo" required>
             <input required name="name" placeholder="Ex: João Manuel Silva" className="field-input" />
           </Field>
+
+          <Field label="Género">
+            <SearchableSelect
+              name="gender"
+              value={clientGender}
+              options={GENDER_OPTIONS}
+              placeholder="Pesquisar género..."
+              onChange={setClientGender}
+            />
+          </Field>
+
           <Field label="Telefone / WhatsApp">
             <input name="phone" placeholder="Ex: 991 34 67" className="field-input" />
           </Field>
@@ -939,6 +963,7 @@ function ClientsListModal({
               <div key={`${client.name}-${index}`} className="rounded-md border border-slate-200 bg-slate-50 p-4">
                 <p className="text-sm font-bold text-slate-900">{client.name}</p>
                 <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+                  <InfoItem label="Género" value={client.gender || "-"} />
                   <InfoItem label="Telefone" value={client.phone || "-"} />
                   <InfoItem label="Número de cliente/serviço" value={client.serviceNumber || "-"} />
                   <InfoItem label="NIF" value={client.nif || "-"} />

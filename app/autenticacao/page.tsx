@@ -49,7 +49,8 @@ export default function AuthenticationPage() {
             alt="CVTelecom"
             width={217}
             height={59}
-            className="mx-auto h-auto w-full max-w-[210px]"
+            style={{ height: "auto" }}
+            className="mx-auto w-full max-w-[210px]"
             priority
           />
           <h1 className="mt-6 text-2xl font-extrabold text-brand-blue">Autenticação</h1>

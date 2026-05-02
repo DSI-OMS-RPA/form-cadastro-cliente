@@ -1,10 +1,10 @@
-import { mkdir, appendFile, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
+import { prisma } from "@/lib/db";
 
 type ClientPayload = {
   name: string;
+  gender?: string;
   phone?: string;
   nif?: string;
   document?: string;
@@ -33,19 +33,56 @@ type RegistrationPayload = {
   clients: ClientPayload[];
 };
 
-type RegistrationRecord = RegistrationPayload & {
-  id: string;
-  createdAt: string;
-  updatedAt?: string;
-  createdBy?: {
-    username: string;
-    name: string;
-    role: string;
-  };
-};
+const registrationWithClients = {
+  include: { clients: true },
+} as const;
 
-const storageDir = join(process.cwd(), "storage");
-const registrationsFile = join(storageDir, "registrations.jsonl");
+function toApiShape(reg: Awaited<ReturnType<typeof findOne>>) {
+  return {
+    id: reg.id,
+    createdAt: reg.createdAt.toISOString(),
+    updatedAt: reg.updatedAt?.toISOString() ?? null,
+    createdBy: {
+      username: reg.createdByUser,
+      name: reg.createdByName,
+      role: reg.createdByRole,
+    },
+    location: {
+      island: reg.island,
+      council: reg.council,
+      zone: reg.zone,
+      neighborhood: reg.neighborhood,
+      street: reg.street ?? undefined,
+      doorReference: reg.doorReference ?? undefined,
+      housingType: reg.housingType,
+      housingStatus: reg.housingStatus,
+      apartmentCount: reg.apartmentCount ?? undefined,
+      gps: {
+        latitude: reg.latitude,
+        longitude: reg.longitude,
+        accuracy: reg.accuracy ?? undefined,
+      },
+    },
+    clients: reg.clients.map((c) => ({
+      name: c.name,
+      gender: c.gender ?? undefined,
+      phone: c.phone ?? undefined,
+      nif: c.nif ?? undefined,
+      document: c.document ?? undefined,
+      serviceNumber: c.serviceNumber ?? undefined,
+      floor: c.floor ?? undefined,
+      apartmentLocation: c.apartmentLocation ?? undefined,
+    })),
+  };
+}
+
+async function findOne(id: string) {
+  const reg = await prisma.registration.findUniqueOrThrow({
+    where: { id },
+    ...registrationWithClients,
+  });
+  return reg;
+}
 
 export async function GET() {
   const user = await getCurrentUser();
@@ -53,15 +90,15 @@ export async function GET() {
     return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
   }
 
-  const records = await readRegistrations();
-  const visibleRecords =
-    user.role === "admin"
-      ? records
-      : records.filter((record) => record.createdBy?.username === user.username);
+  const where = user.role === "admin" ? {} : { createdByUser: user.username };
 
-  return NextResponse.json({
-    registrations: visibleRecords.sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+  const records = await prisma.registration.findMany({
+    where,
+    orderBy: { createdAt: "desc" },
+    ...registrationWithClients,
   });
+
+  return NextResponse.json({ registrations: records.map(toApiShape) });
 }
 
 export async function POST(request: Request) {
@@ -71,7 +108,6 @@ export async function POST(request: Request) {
   }
 
   let payload: RegistrationPayload;
-
   try {
     payload = await request.json();
   } catch {
@@ -83,21 +119,40 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: validationError }, { status: 400 });
   }
 
-  const record = {
-    id: crypto.randomUUID(),
-    createdAt: new Date().toISOString(),
-    createdBy: {
-      username: user.username,
-      name: user.name,
-      role: user.role,
+  const reg = await prisma.registration.create({
+    data: {
+      createdByUser: user.username,
+      createdByName: user.name,
+      createdByRole: user.role,
+      island: payload.location.island,
+      council: payload.location.council,
+      zone: payload.location.zone,
+      neighborhood: payload.location.neighborhood,
+      street: payload.location.street ?? null,
+      doorReference: payload.location.doorReference ?? null,
+      housingType: payload.location.housingType,
+      housingStatus: payload.location.housingStatus,
+      apartmentCount: payload.location.apartmentCount ?? null,
+      latitude: payload.location.gps.latitude,
+      longitude: payload.location.gps.longitude,
+      accuracy: payload.location.gps.accuracy ?? null,
+      clients: {
+        create: payload.clients.map((c) => ({
+          name: c.name,
+          gender: c.gender ?? null,
+          phone: c.phone ?? null,
+          nif: c.nif ?? null,
+          document: c.document ?? null,
+          serviceNumber: c.serviceNumber ?? null,
+          floor: c.floor ?? null,
+          apartmentLocation: c.apartmentLocation ?? null,
+        })),
+      },
     },
-    ...payload,
-  };
+    ...registrationWithClients,
+  });
 
-  await mkdir(storageDir, { recursive: true });
-  await appendFile(registrationsFile, `${JSON.stringify(record)}\n`, "utf8");
-
-  return NextResponse.json({ ok: true, id: record.id });
+  return NextResponse.json({ ok: true, id: reg.id });
 }
 
 export async function PATCH(request: Request) {
@@ -107,7 +162,6 @@ export async function PATCH(request: Request) {
   }
 
   let payload: { id?: string; client?: ClientPayload };
-
   try {
     payload = await request.json();
   } catch {
@@ -115,51 +169,58 @@ export async function PATCH(request: Request) {
   }
 
   if (!payload.id?.trim()) {
-    return NextResponse.json({ error: "Identificador do prédio/residência em falta." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Identificador do prédio/residência em falta." },
+      { status: 400 }
+    );
   }
 
   if (!payload.client?.name?.trim()) {
-    return NextResponse.json({ error: "O nome completo do cliente é obrigatório." }, { status: 400 });
+    return NextResponse.json(
+      { error: "O nome completo do cliente é obrigatório." },
+      { status: 400 }
+    );
   }
 
-  const records = await readRegistrations();
-  const recordIndex = records.findIndex((record) => record.id === payload.id);
+  const existing = await prisma.registration.findUnique({
+    where: { id: payload.id },
+  });
 
-  if (recordIndex === -1) {
-    return NextResponse.json({ error: "Prédio/residência não encontrado." }, { status: 404 });
+  if (!existing) {
+    return NextResponse.json(
+      { error: "Prédio/residência não encontrado." },
+      { status: 404 }
+    );
   }
 
-  const targetRecord = records[recordIndex];
-  if (user.role !== "admin" && targetRecord.createdBy?.username !== user.username) {
-    return NextResponse.json({ error: "Sem permissão para alterar este registo." }, { status: 403 });
+  if (user.role !== "admin" && existing.createdByUser !== user.username) {
+    return NextResponse.json(
+      { error: "Sem permissão para alterar este registo." },
+      { status: 403 }
+    );
   }
 
-  records[recordIndex] = {
-    ...targetRecord,
-    updatedAt: new Date().toISOString(),
-    clients: [...targetRecord.clients, payload.client],
-  };
+  const updated = await prisma.registration.update({
+    where: { id: payload.id },
+    data: {
+      updatedAt: new Date(),
+      clients: {
+        create: {
+          name: payload.client.name,
+          gender: payload.client.gender ?? null,
+          phone: payload.client.phone ?? null,
+          nif: payload.client.nif ?? null,
+          document: payload.client.document ?? null,
+          serviceNumber: payload.client.serviceNumber ?? null,
+          floor: payload.client.floor ?? null,
+          apartmentLocation: payload.client.apartmentLocation ?? null,
+        },
+      },
+    },
+    ...registrationWithClients,
+  });
 
-  await mkdir(storageDir, { recursive: true });
-  await writeFile(registrationsFile, `${records.map((record) => JSON.stringify(record)).join("\n")}\n`, "utf8");
-
-  return NextResponse.json({ ok: true, registration: records[recordIndex] });
-}
-
-async function readRegistrations(): Promise<RegistrationRecord[]> {
-  try {
-    const content = await readFile(registrationsFile, "utf8");
-    return content
-      .split(/\r?\n/)
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as RegistrationRecord);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return [];
-    }
-
-    throw error;
-  }
+  return NextResponse.json({ ok: true, registration: toApiShape(updated) });
 }
 
 function validateRegistration(payload: RegistrationPayload) {
@@ -167,7 +228,7 @@ function validateRegistration(payload: RegistrationPayload) {
     return "Dados de localização em falta.";
   }
 
-  const requiredLocationFields = [
+  const requiredFields = [
     payload.location.island,
     payload.location.council,
     payload.location.zone,
@@ -178,7 +239,7 @@ function validateRegistration(payload: RegistrationPayload) {
     payload.location.gps?.longitude,
   ];
 
-  if (requiredLocationFields.some((value) => !String(value ?? "").trim())) {
+  if (requiredFields.some((v) => !String(v ?? "").trim())) {
     return "Preencha todos os campos obrigatórios da localização.";
   }
 
@@ -186,7 +247,7 @@ function validateRegistration(payload: RegistrationPayload) {
     return "A lista de clientes é inválida.";
   }
 
-  if (payload.clients.some((client) => !client.name?.trim())) {
+  if (payload.clients.some((c) => !c.name?.trim())) {
     return "O nome completo é obrigatório para todos os clientes.";
   }
 

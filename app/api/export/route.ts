@@ -1,45 +1,4 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
-
-type ClientRecord = {
-  name?: string;
-  phone?: string;
-  nif?: string;
-  document?: string;
-  serviceNumber?: string;
-  floor?: string;
-  apartmentLocation?: string;
-};
-
-type RegistrationRecord = {
-  id: string;
-  createdAt: string;
-  updatedAt?: string;
-  createdBy?: {
-    username?: string;
-    name?: string;
-    role?: string;
-  };
-  location: {
-    island?: string;
-    council?: string;
-    zone?: string;
-    neighborhood?: string;
-    street?: string;
-    doorReference?: string;
-    housingType?: string;
-    housingStatus?: string;
-    apartmentCount?: string;
-    gps?: {
-      latitude?: string;
-      longitude?: string;
-      accuracy?: string;
-    };
-  };
-  clients: ClientRecord[];
-};
-
-const registrationsFile = join(process.cwd(), "storage", "registrations.jsonl");
+import { prisma } from "@/lib/db";
 
 const headers = [
   "ID do registo",
@@ -62,6 +21,7 @@ const headers = [
   "Precisão GPS",
   "Total de clientes cadastrados",
   "Nome completo do cliente",
+  "Género",
   "Telefone / WhatsApp",
   "NIF",
   "CNI/BI",
@@ -71,43 +31,48 @@ const headers = [
 ];
 
 export async function GET() {
-  const records = await readRegistrations();
-  const rows = records.flatMap((record) => {
-    const clients = record.clients.length > 0 ? record.clients : [{}];
+  const records = await prisma.registration.findMany({
+    orderBy: { createdAt: "asc" },
+    include: { clients: true },
+  });
+
+  const rows = records.flatMap((reg) => {
+    const clients = reg.clients.length > 0 ? reg.clients : [null];
 
     return clients.map((client) => [
-      record.id,
-      formatDate(record.createdAt),
-      formatDate(record.updatedAt),
-      record.createdBy?.name,
-      record.createdBy?.username,
-      record.createdBy?.role,
-      record.location.island,
-      record.location.council,
-      record.location.zone,
-      record.location.neighborhood,
-      record.location.street,
-      record.location.doorReference,
-      record.location.housingType,
-      record.location.housingStatus,
-      record.location.apartmentCount,
-      record.location.gps?.latitude,
-      record.location.gps?.longitude,
-      record.location.gps?.accuracy,
-      record.clients.length,
-      client.name,
-      client.phone,
-      client.nif,
-      client.document,
-      client.serviceNumber,
-      client.floor,
-      client.apartmentLocation,
+      reg.id,
+      formatDate(reg.createdAt),
+      formatDate(reg.updatedAt),
+      reg.createdByName,
+      reg.createdByUser,
+      reg.createdByRole,
+      reg.island,
+      reg.council,
+      reg.zone,
+      reg.neighborhood,
+      reg.street,
+      reg.doorReference,
+      reg.housingType,
+      reg.housingStatus,
+      reg.apartmentCount,
+      reg.latitude,
+      reg.longitude,
+      reg.accuracy,
+      reg.clients.length,
+      client?.name,
+      client?.gender,
+      client?.phone,
+      client?.nif,
+      client?.document,
+      client?.serviceNumber,
+      client?.floor,
+      client?.apartmentLocation,
     ]);
   });
 
   const csv = toCsv([headers, ...rows]);
 
-  return new Response(`\uFEFF${csv}`, {
+  return new Response(`﻿${csv}`, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
       "Content-Disposition": `attachment; filename="cadastro-clientes-${new Date()
@@ -116,22 +81,6 @@ export async function GET() {
       "Cache-Control": "no-store",
     },
   });
-}
-
-async function readRegistrations(): Promise<RegistrationRecord[]> {
-  try {
-    const content = await readFile(registrationsFile, "utf8");
-    return content
-      .split(/\r?\n/)
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as RegistrationRecord);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return [];
-    }
-
-    throw error;
-  }
 }
 
 function toCsv(rows: unknown[][]) {
@@ -144,16 +93,10 @@ function formatCsvCell(value: unknown) {
   return `"${safeText.replaceAll('"', '""')}"`;
 }
 
-function formatDate(value?: string) {
-  if (!value) {
-    return "";
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
+function formatDate(value?: Date | string | null) {
+  if (!value) return "";
+  const date = typeof value === "string" ? new Date(value) : value;
+  if (Number.isNaN(date.getTime())) return String(value);
   return new Intl.DateTimeFormat("pt-PT", {
     dateStyle: "short",
     timeStyle: "medium",

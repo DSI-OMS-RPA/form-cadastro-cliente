@@ -1,0 +1,49 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Registration {
+  id             String   @id @default(uuid())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime?
+
+  createdByUser  String
+  createdByName  String
+  createdByRole  String
+
+  island         String
+  council        String
+  zone           String
+  neighborhood   String
+  street         String?
+  doorReference  String?
+  housingType    String
+  housingStatus  String
+  apartmentCount String?
+
+  latitude       String
+  longitude      String
+  accuracy       String?
+
+  clients        Client[]
+}
+
+model Client {
+  id                String       @id @default(uuid())
+  registration      Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  registrationId    String
+
+  name              String
+  gender            String?
+  phone             String?
+  nif               String?
+  document          String?
+  serviceNumber     String?
+  floor             String?
+  apartmentLocation String?
+}
