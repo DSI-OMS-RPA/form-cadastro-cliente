@@ -33,6 +33,17 @@ model Registration {
   clients        Client[]
 }
 
+model AuditLog {
+  id        String   @id @default(uuid())
+  timestamp DateTime @default(now())
+  event     String   // "login" | "logout" | "login_failed"
+  username  String
+  name      String
+  role      String
+  ip        String?
+  userAgent String?
+}
+
 model Client {
   id                String       @id @default(uuid())
   registration      Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)

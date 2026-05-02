@@ -7,6 +7,8 @@ import { useRouter } from "next/navigation";
 import {
   Check,
   ChevronsUpDown,
+  ClipboardList,
+  Download,
   HomeIcon,
   Loader2,
   LocateFixed,
@@ -85,6 +87,17 @@ type CurrentUser = {
   role: "admin" | "operador";
 };
 
+type AuditLog = {
+  id: string;
+  timestamp: string;
+  event: "login" | "logout" | "login_failed";
+  username: string;
+  name: string;
+  role: string;
+  ip: string | null;
+  userAgent: string | null;
+};
+
 export default function Home() {
   const router = useRouter();
   const [isMounted, setIsMounted] = useState(false);
@@ -92,6 +105,9 @@ export default function Home() {
   const [registrations, setRegistrations] = useState<RegistrationRecord[]>([]);
   const [isLoadingRegistrations, setIsLoadingRegistrations] = useState(true);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isAuditOpen, setIsAuditOpen] = useState(false);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [isLoadingAudit, setIsLoadingAudit] = useState(false);
   const [clientTargetId, setClientTargetId] = useState<string | null>(null);
   const [clientsViewTargetId, setClientsViewTargetId] = useState<string | null>(null);
   const [clientSubmitState, setClientSubmitState] = useState<"idle" | "saving" | "success" | "error">("idle");
@@ -145,6 +161,17 @@ export default function Home() {
       setRegistrations(payload.registrations ?? []);
     } finally {
       setIsLoadingRegistrations(false);
+    }
+  }
+
+  async function loadAuditLogs() {
+    setIsLoadingAudit(true);
+    try {
+      const response = await fetch("/api/audit", { cache: "no-store" });
+      const payload = (await response.json()) as { logs?: AuditLog[] };
+      setAuditLogs(payload.logs ?? []);
+    } finally {
+      setIsLoadingAudit(false);
     }
   }
 
@@ -369,13 +396,38 @@ export default function Home() {
               <p className="text-sm font-semibold text-slate-900">{currentUser.name}</p>
               <p className="text-xs uppercase tracking-[0.12em] text-slate-500">{currentUser.role}</p>
             </div>
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="h-10 rounded-md border border-slate-200 px-4 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-blue-100"
-            >
-              Terminar sessão
-            </button>
+            <div className="flex flex-wrap gap-2">
+              {currentUser.role === "admin" && (
+                <>
+                  <a
+                    href="/api/export"
+                    download
+                    className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-200 px-4 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-blue-100"
+                  >
+                    <Download className="h-4 w-4" aria-hidden="true" />
+                    Exportar CSV
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAuditOpen(true);
+                      loadAuditLogs();
+                    }}
+                    className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-200 px-4 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-blue-100"
+                  >
+                    <ClipboardList className="h-4 w-4" aria-hidden="true" />
+                    Registo de acessos
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="h-10 rounded-md border border-slate-200 px-4 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-blue-100"
+              >
+                Terminar sessão
+              </button>
+            </div>
           </section>
         )}
 
@@ -671,6 +723,14 @@ export default function Home() {
           />
         )}
 
+        {isAuditOpen && (
+          <AuditModal
+            logs={auditLogs}
+            isLoading={isLoadingAudit}
+            onClose={() => setIsAuditOpen(false)}
+          />
+        )}
+
         <footer className="mx-auto mt-7 max-w-[410px] text-center text-[13px] leading-5 text-slate-500">
           <p>Se tiver dúvidas, contacte a nossa equipa de suporte.</p>
         </footer>
@@ -806,6 +866,184 @@ function RegistrationCard({
         )}
       </div>
     </article>
+  );
+}
+
+const EVENT_LABEL: Record<string, { label: string; classes: string }> = {
+  login: { label: "Login", classes: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  logout: { label: "Logout", classes: "bg-slate-100 text-slate-600 border-slate-200" },
+  login_failed: { label: "Falha de login", classes: "bg-red-50 text-red-700 border-red-200" },
+};
+
+function AuditModal({
+  logs,
+  isLoading,
+  onClose,
+}: {
+  logs: AuditLog[];
+  isLoading: boolean;
+  onClose: () => void;
+}) {
+  const [search, setSearch] = useState("");
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLocaleLowerCase("pt-PT");
+    if (!q) return logs;
+    return logs.filter(
+      (l) =>
+        l.username.toLocaleLowerCase("pt-PT").includes(q) ||
+        l.name.toLocaleLowerCase("pt-PT").includes(q) ||
+        l.event.includes(q) ||
+        (l.ip ?? "").includes(q)
+    );
+  }, [logs, search]);
+
+  function exportCsv() {
+    const eventLabels: Record<string, string> = {
+      login: "Login",
+      logout: "Logout",
+      login_failed: "Falha de login",
+    };
+
+    const headers = ["Data/Hora", "Evento", "Nome", "Utilizador", "Perfil", "IP", "User-Agent"];
+    const rows = filtered.map((l) => [
+      new Intl.DateTimeFormat("pt-PT", { dateStyle: "short", timeStyle: "medium" }).format(new Date(l.timestamp)),
+      eventLabels[l.event] ?? l.event,
+      l.name,
+      l.username,
+      l.role,
+      l.ip ?? "",
+      l.userAgent ?? "",
+    ]);
+
+    const csv =
+      "﻿" +
+      [headers, ...rows]
+        .map((row) =>
+          row
+            .map((cell) => {
+              const text = String(cell ?? "");
+              const safe = /^[=+\-@]/.test(text) ? `'${text}` : text;
+              return `"${safe.replaceAll('"', '""')}"`;
+            })
+            .join(";")
+        )
+        .join("\r\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `acessos-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/60 px-4 py-6">
+      <div className="mx-auto w-full max-w-[820px]">
+        <div className="rounded-[10px] border border-slate-200 bg-white shadow-2xl">
+          {/* Header */}
+          <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+            <div className="flex items-center gap-3">
+              <ClipboardList className="h-5 w-5 text-brand-blue" aria-hidden="true" />
+              <div>
+                <h2 className="text-base font-bold text-slate-900">Registo de acessos</h2>
+                <p className="text-xs text-slate-500">{logs.length} evento{logs.length === 1 ? "" : "s"} registado{logs.length === 1 ? "" : "s"}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={exportCsv}
+                disabled={isLoading || filtered.length === 0}
+                className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 px-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+                title="Exportar para CSV"
+              >
+                <Download className="h-4 w-4" aria-hidden="true" />
+                <span className="hidden sm:inline">Exportar CSV</span>
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-blue-100"
+                aria-label="Fechar"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+
+          {/* Pesquisa */}
+          <div className="border-b border-slate-200 px-6 py-3">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Pesquisar por utilizador, evento ou IP..."
+                className="field-input pl-10"
+                autoComplete="off"
+              />
+            </div>
+          </div>
+
+          {/* Conteúdo */}
+          <div className="max-h-[60vh] overflow-y-auto">
+            {isLoading ? (
+              <div className="flex items-center justify-center gap-2 py-12 text-sm text-slate-500">
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                A carregar registos...
+              </div>
+            ) : filtered.length === 0 ? (
+              <p className="py-12 text-center text-sm text-slate-500">
+                {search ? "Nenhum resultado encontrado." : "Nenhum evento registado."}
+              </p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-slate-50">
+                  <tr className="border-b border-slate-200 text-left text-xs font-bold uppercase tracking-[0.1em] text-slate-500">
+                    <th className="px-6 py-3">Data / Hora</th>
+                    <th className="px-4 py-3">Evento</th>
+                    <th className="px-4 py-3">Utilizador</th>
+                    <th className="px-4 py-3">Perfil</th>
+                    <th className="hidden px-4 py-3 md:table-cell">IP</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filtered.map((log) => {
+                    const ev = EVENT_LABEL[log.event] ?? { label: log.event, classes: "bg-slate-100 text-slate-600 border-slate-200" };
+                    return (
+                      <tr key={log.id} className="hover:bg-slate-50">
+                        <td className="whitespace-nowrap px-6 py-3 font-mono text-xs text-slate-500">
+                          {new Intl.DateTimeFormat("pt-PT", {
+                            dateStyle: "short",
+                            timeStyle: "medium",
+                          }).format(new Date(log.timestamp))}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`inline-block rounded-full border px-2.5 py-0.5 text-xs font-semibold ${ev.classes}`}>
+                            {ev.label}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 font-medium text-slate-800">
+                          <span>{log.name}</span>
+                          <span className="ml-1.5 text-xs text-slate-400">@{log.username}</span>
+                        </td>
+                        <td className="px-4 py-3 text-slate-500">{log.role}</td>
+                        <td className="hidden px-4 py-3 font-mono text-xs text-slate-400 md:table-cell">
+                          {log.ip ?? "-"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
