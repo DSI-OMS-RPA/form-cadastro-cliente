@@ -98,6 +98,9 @@ type AuditLog = {
   userAgent: string | null;
 };
 
+const REG_PAGE_SIZE = 10;
+const AUDIT_PAGE_SIZE = 20;
+
 export default function Home() {
   const router = useRouter();
   const [isMounted, setIsMounted] = useState(false);
@@ -105,6 +108,7 @@ export default function Home() {
   const [registrations, setRegistrations] = useState<RegistrationRecord[]>([]);
   const [isLoadingRegistrations, setIsLoadingRegistrations] = useState(true);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [regPage, setRegPage] = useState(1);
   const [isAuditOpen, setIsAuditOpen] = useState(false);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [isLoadingAudit, setIsLoadingAudit] = useState(false);
@@ -159,6 +163,7 @@ export default function Home() {
 
       const payload = (await response.json()) as { registrations?: RegistrationRecord[] };
       setRegistrations(payload.registrations ?? []);
+      setRegPage(1);
     } finally {
       setIsLoadingRegistrations(false);
     }
@@ -439,6 +444,7 @@ export default function Home() {
               {registrations.length === 1 ? "" : "s"}.
             </p>
           </div>
+
           <button
             type="button"
             onClick={() => {
@@ -458,21 +464,31 @@ export default function Home() {
             A carregar registos...
           </div>
         ) : registrations.length > 0 ? (
-          <section className="grid gap-4 lg:grid-cols-2">
-            {registrations.map((registration) => (
-              <RegistrationCard
-                key={registration.id}
-                registration={registration}
-                showCreatedBy={currentUser?.role === "admin"}
-                onAddClient={() => {
-                  setClientSubmitState("idle");
-                  setClientSubmitMessage("");
-                  setClientTargetId(registration.id);
-                }}
-                onViewClients={() => setClientsViewTargetId(registration.id)}
-              />
-            ))}
-          </section>
+          <>
+            <section className="grid gap-4 lg:grid-cols-2">
+              {registrations
+                .slice((regPage - 1) * REG_PAGE_SIZE, regPage * REG_PAGE_SIZE)
+                .map((registration) => (
+                  <RegistrationCard
+                    key={registration.id}
+                    registration={registration}
+                    showCreatedBy={currentUser?.role === "admin"}
+                    onAddClient={() => {
+                      setClientSubmitState("idle");
+                      setClientSubmitMessage("");
+                      setClientTargetId(registration.id);
+                    }}
+                    onViewClients={() => setClientsViewTargetId(registration.id)}
+                  />
+                ))}
+            </section>
+            <Pagination
+              page={regPage}
+              total={registrations.length}
+              pageSize={REG_PAGE_SIZE}
+              onChange={setRegPage}
+            />
+          </>
         ) : (
           <div className="rounded-[10px] border border-dashed border-slate-300 bg-white p-8 text-center shadow-form">
             <HomeIcon className="mx-auto mb-3 h-8 w-8 text-slate-400" aria-hidden="true" />
@@ -885,6 +901,7 @@ function AuditModal({
   onClose: () => void;
 }) {
   const [search, setSearch] = useState("");
+  const [auditPage, setAuditPage] = useState(1);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLocaleLowerCase("pt-PT");
@@ -897,6 +914,14 @@ function AuditModal({
         (l.ip ?? "").includes(q)
     );
   }, [logs, search]);
+
+  // reset page whenever search changes
+  useEffect(() => { setAuditPage(1); }, [search]);
+
+  const auditPageSlice = filtered.slice(
+    (auditPage - 1) * AUDIT_PAGE_SIZE,
+    auditPage * AUDIT_PAGE_SIZE,
+  );
 
   function exportCsv() {
     const eventLabels: Record<string, string> = {
@@ -1011,7 +1036,7 @@ function AuditModal({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filtered.map((log) => {
+                  {auditPageSlice.map((log) => {
                     const ev = EVENT_LABEL[log.event] ?? { label: log.event, classes: "bg-slate-100 text-slate-600 border-slate-200" };
                     return (
                       <tr key={log.id} className="hover:bg-slate-50">
@@ -1041,7 +1066,93 @@ function AuditModal({
               </table>
             )}
           </div>
+
+          {/* Paginação do modal */}
+          {!isLoading && filtered.length > AUDIT_PAGE_SIZE && (
+            <div className="border-t border-slate-200 px-6 py-3">
+              <Pagination
+                page={auditPage}
+                total={filtered.length}
+                pageSize={AUDIT_PAGE_SIZE}
+                onChange={setAuditPage}
+              />
+            </div>
+          )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function Pagination({
+  page,
+  total,
+  pageSize,
+  onChange,
+}: {
+  page: number;
+  total: number;
+  pageSize: number;
+  onChange: (page: number) => void;
+}) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const from = Math.min((page - 1) * pageSize + 1, total);
+  const to = Math.min(page * pageSize, total);
+
+  // Build visible page numbers: always show first, last, current ± 1
+  const pages = useMemo(() => {
+    const set = new Set([1, totalPages, page, page - 1, page + 1].filter((p) => p >= 1 && p <= totalPages));
+    return [...set].sort((a, b) => a - b);
+  }, [page, totalPages]);
+
+  if (totalPages <= 1) return null;
+
+  return (
+    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
+      <p className="text-slate-500">
+        <span className="font-semibold text-slate-700">{from}–{to}</span> de <span className="font-semibold text-slate-700">{total}</span>
+      </p>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          disabled={page === 1}
+          onClick={() => onChange(page - 1)}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+          aria-label="Página anterior"
+        >
+          <ChevronsUpDown className="h-4 w-4 rotate-90" aria-hidden="true" />
+        </button>
+
+        {pages.map((p, i) => {
+          const prev = pages[i - 1];
+          const gap = prev !== undefined && p - prev > 1;
+          return (
+            <span key={p} className="flex items-center gap-1">
+              {gap && <span className="px-1 text-slate-400">…</span>}
+              <button
+                type="button"
+                onClick={() => onChange(p)}
+                className={`inline-flex h-8 min-w-[2rem] items-center justify-center rounded-md border px-2 font-medium transition ${
+                  p === page
+                    ? "border-brand-blue bg-brand-blue text-white"
+                    : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                {p}
+              </button>
+            </span>
+          );
+        })}
+
+        <button
+          type="button"
+          disabled={page === totalPages}
+          onClick={() => onChange(page + 1)}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+          aria-label="Próxima página"
+        >
+          <ChevronsUpDown className="h-4 w-4 -rotate-90" aria-hidden="true" />
+        </button>
       </div>
     </div>
   );
