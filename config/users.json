@@ -1,14 +1,14 @@
 [
   {
     "username": "admin",
-    "password": "admin123",
+    "password": "scrypt:c6e783bcb6b5ad22f13efabdc73439791d064561d4d5b88038c7d96a2e6bdd14:86c892f374caf756d679d642ec6c90e9abccee75e5b580f7dfc974d566f1b6d76797024f3439732076b5e4c4c577cb4559164f26f310fb5728d90eab3ec404ce",
     "name": "Administrador",
     "role": "admin",
     "active": true
   },
   {
     "username": "operador",
-    "password": "operador123",
+    "password": "scrypt:45d9bf692d03483698dca2a9af5c77b01b7f6dc78c3a0ccbff3da0fcdfa4f4fd:dbc4ef1a5cb96caf8a936001e8c4303976b367f8a3b07f987d40ec49789419fa9c87d06a985d80d8e1b104e703bc0ddc77731748af7080715b0f398fefa696a7",
     "name": "Operador",
     "role": "operador",
     "active": true

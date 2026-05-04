@@ -109,6 +109,7 @@ export default function Home() {
   const [isLoadingRegistrations, setIsLoadingRegistrations] = useState(true);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [regPage, setRegPage] = useState(1);
+  const [regSearch, setRegSearch] = useState("");
   const [isAuditOpen, setIsAuditOpen] = useState(false);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [isLoadingAudit, setIsLoadingAudit] = useState(false);
@@ -138,6 +139,8 @@ export default function Home() {
     setIsMounted(true);
     initializeSession();
   }, []);
+
+  useEffect(() => { setRegPage(1); }, [regSearch]);
 
   async function initializeSession() {
     const response = await fetch("/api/auth/me", { cache: "no-store" });
@@ -365,8 +368,39 @@ export default function Home() {
   const zones = councils.find((council) => council.name === selectedCouncil)?.zones ?? [];
   const neighborhoods = zones.find((zone) => zone.name === selectedZone)?.neighborhoods ?? [];
 
-  if (!isMounted) {
-    return null;
+  const filteredRegistrations = useMemo(() => {
+    const sorted = [...registrations].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+    const q = regSearch.trim().toLocaleLowerCase("pt-PT");
+    if (!q) return sorted;
+    return sorted.filter((r) =>
+      [
+        r.location.island,
+        r.location.council,
+        r.location.zone,
+        r.location.neighborhood,
+        r.location.street,
+        r.location.doorReference,
+        r.location.housingType,
+        r.location.housingStatus,
+        r.createdBy?.name,
+        r.createdBy?.username,
+      ]
+        .filter(Boolean)
+        .some((field) => field!.toLocaleLowerCase("pt-PT").includes(q))
+    );
+  }, [registrations, regSearch]);
+
+  // Não renderiza nada até o cliente estar hidratado E o utilizador confirmado.
+  // O middleware já redireciona no servidor, mas esta guarda elimina qualquer
+  // flash residual durante a hidratação do React.
+  if (!isMounted || !currentUser) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-brand-blue" aria-label="A carregar..." />
+      </div>
+    );
   }
 
   return (
@@ -436,27 +470,49 @@ export default function Home() {
           </section>
         )}
 
-        <section className="mb-6 flex flex-col gap-3 rounded-[10px] border border-slate-200 bg-white p-4 shadow-form sm:flex-row sm:items-center sm:justify-between sm:p-5">
-          <div>
-            <h2 className="text-lg font-bold text-slate-900">Prédios e residências</h2>
-            <p className="text-sm text-slate-500">
-              {registrations.length} registo{registrations.length === 1 ? "" : "s"} cadastrado
-              {registrations.length === 1 ? "" : "s"}.
-            </p>
+        <section className="mb-4 rounded-[10px] border border-slate-200 bg-white p-4 shadow-form sm:p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">Prédios e residências</h2>
+              <p className="text-sm text-slate-500">
+                {regSearch.trim()
+                  ? `${filteredRegistrations.length} de ${registrations.length} registo${registrations.length === 1 ? "" : "s"}`
+                  : `${registrations.length} registo${registrations.length === 1 ? "" : "s"} cadastrado${registrations.length === 1 ? "" : "s"}`}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setSubmitState("idle");
+                setSubmitMessage("");
+                setIsCreateOpen(true);
+              }}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-brand-blue px-4 text-sm font-bold text-white transition hover:bg-brand-blueDark focus:outline-none focus:ring-4 focus:ring-blue-100"
+            >
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Novo prédio/residência
+            </button>
           </div>
-
-          <button
-            type="button"
-            onClick={() => {
-              setSubmitState("idle");
-              setSubmitMessage("");
-              setIsCreateOpen(true);
-            }}
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-brand-blue px-4 text-sm font-bold text-white transition hover:bg-brand-blueDark focus:outline-none focus:ring-4 focus:ring-blue-100"
-          >
-            <Plus className="h-4 w-4" aria-hidden="true" />
-            Novo prédio/residência
-          </button>
+          <div className="relative mt-3">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+            <input
+              value={regSearch}
+              onChange={(e) => setRegSearch(e.target.value)}
+              placeholder="Pesquisar por ilha, concelho, bairro, rua, tipo..."
+              className="field-input pl-10 pr-10"
+              autoComplete="off"
+            />
+            {regSearch && (
+              <button
+                type="button"
+                onClick={() => setRegSearch("")}
+                className="absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                aria-label="Limpar pesquisa"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            )}
+          </div>
         </section>
 
         {isLoadingRegistrations ? (
@@ -465,29 +521,39 @@ export default function Home() {
           </div>
         ) : registrations.length > 0 ? (
           <>
-            <section className="grid gap-4 lg:grid-cols-2">
-              {registrations
-                .slice((regPage - 1) * REG_PAGE_SIZE, regPage * REG_PAGE_SIZE)
-                .map((registration) => (
-                  <RegistrationCard
-                    key={registration.id}
-                    registration={registration}
-                    showCreatedBy={currentUser?.role === "admin"}
-                    onAddClient={() => {
-                      setClientSubmitState("idle");
-                      setClientSubmitMessage("");
-                      setClientTargetId(registration.id);
-                    }}
-                    onViewClients={() => setClientsViewTargetId(registration.id)}
-                  />
-                ))}
-            </section>
-            <Pagination
-              page={regPage}
-              total={registrations.length}
-              pageSize={REG_PAGE_SIZE}
-              onChange={setRegPage}
-            />
+            {filteredRegistrations.length === 0 ? (
+              <div className="rounded-[10px] border border-dashed border-slate-300 bg-white p-8 text-center shadow-form">
+                <Search className="mx-auto mb-3 h-8 w-8 text-slate-400" aria-hidden="true" />
+                <h2 className="text-base font-bold text-slate-800">Nenhum resultado encontrado</h2>
+                <p className="mt-1 text-sm text-slate-500">Tenta pesquisar com outros termos.</p>
+              </div>
+            ) : (
+              <>
+                <section className="grid gap-4 lg:grid-cols-2">
+                  {filteredRegistrations
+                    .slice((regPage - 1) * REG_PAGE_SIZE, regPage * REG_PAGE_SIZE)
+                    .map((registration) => (
+                      <RegistrationCard
+                        key={registration.id}
+                        registration={registration}
+                        showCreatedBy={currentUser?.role === "admin"}
+                        onAddClient={() => {
+                          setClientSubmitState("idle");
+                          setClientSubmitMessage("");
+                          setClientTargetId(registration.id);
+                        }}
+                        onViewClients={() => setClientsViewTargetId(registration.id)}
+                      />
+                    ))}
+                </section>
+                <Pagination
+                  page={regPage}
+                  total={filteredRegistrations.length}
+                  pageSize={REG_PAGE_SIZE}
+                  onChange={setRegPage}
+                />
+              </>
+            )}
           </>
         ) : (
           <div className="rounded-[10px] border border-dashed border-slate-300 bg-white p-8 text-center shadow-form">
