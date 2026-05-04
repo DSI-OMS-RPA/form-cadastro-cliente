@@ -12,7 +12,7 @@ function hasValidStructure(cookieValue: string): boolean {
   return base64url.test(parts[0]) && base64url.test(parts[1]);
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Rotas públicas — sem autenticação
