@@ -8,11 +8,9 @@ const nextConfig = {
   turbopack: {
     root: appRoot,
   },
-  // Permite acesso pelo IP da rede local em modo dev (necessário para testar no servidor)
-  // Adicionar o IP do servidor se necessário, ex: ["192.168.87.59"]
-  allowedDevOrigins: ["*"],
-  // Para Next.js 16 que ainda usa lista de strings:
-  // allowedDevOrigins: ["192.168.87.59"],
+  // Permite acesso pelo IP da rede local em modo dev
+  // Adicionar aqui o IP do servidor para testes de desenvolvimento
+  allowedDevOrigins: ["192.168.87.59"],
 };
 
 export default nextConfig;
