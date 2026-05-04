@@ -8,6 +8,8 @@ const nextConfig = {
   turbopack: {
     root: appRoot,
   },
+  // Permite acesso pelo IP da rede local em modo dev (necessário para testar no servidor)
+  allowedDevOrigins: ["*"],
 };
 
 export default nextConfig;

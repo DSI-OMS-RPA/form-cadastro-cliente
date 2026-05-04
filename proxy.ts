@@ -4,7 +4,7 @@ const SESSION_COOKIE = "ift_session";
 
 // Verifica se o cookie tem a estrutura esperada: dois segmentos base64url separados por "."
 // A validação criptográfica completa (HMAC) é feita nas rotas API (Node.js runtime).
-// O middleware apenas evita o flash visual para utilizadores sem sessão.
+// O proxy apenas evita o flash visual para utilizadores sem sessão.
 function hasValidStructure(cookieValue: string): boolean {
   const parts = cookieValue.split(".");
   if (parts.length !== 2) return false;
