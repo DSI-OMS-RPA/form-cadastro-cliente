@@ -4,3 +4,4 @@ storage/
 *.log
 screenshot-*.png
 .env
+.claude/
