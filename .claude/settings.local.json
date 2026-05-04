@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\cvt00985\\\\Desktop\\\\processos_etl_rpa\\\\cadastro\" -Recurse -Force | Where-Object { $_.FullName -notmatch '\\(node_modules|\\\\.next|\\\\.git\\)' } | ForEach-Object { $_.FullName.Substring\\(62\\) } | Sort-Object)"
-    ]
-  }
-}
