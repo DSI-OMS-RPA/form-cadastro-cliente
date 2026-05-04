@@ -149,10 +149,14 @@ export async function authenticate(
 
 export async function createSession(user: AuthUser) {
   const cookieStore = await cookies();
+  // COOKIE_SECURE=true apenas quando HTTPS estiver configurado.
+  // Em HTTP (ex: rede interna sem HTTPS) manter false para o cookie funcionar.
+  const secureCookie = process.env.COOKIE_SECURE === "true";
+
   cookieStore.set(SESSION_COOKIE, encodeSession(user), {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: secureCookie,
     path: "/",
     maxAge: SESSION_MAX_AGE,
   });
