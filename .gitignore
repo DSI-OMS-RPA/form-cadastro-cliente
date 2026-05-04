@@ -1,6 +1,10 @@
 node_modules/
 .next/
-storage/
+storage/*.db
+storage/*.db-journal
+storage/*.db-shm
+storage/*.db-wal
+storage/*.jsonl
 *.log
 screenshot-*.png
 .env

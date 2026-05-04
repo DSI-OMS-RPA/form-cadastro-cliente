@@ -5,6 +5,8 @@ generator client {
 datasource db {
   provider = "sqlite"
   url      = env("DATABASE_URL")
+  // DATABASE_URL = "file:../storage/cadastro.db"
+  // O caminho é relativo à pasta prisma/, logo ../ sobe para a raiz do projeto
 }
 
 model Registration {
