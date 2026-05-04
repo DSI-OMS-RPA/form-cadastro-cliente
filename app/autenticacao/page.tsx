@@ -14,27 +14,35 @@ export default function AuthenticationPage() {
     setError("");
     setIsLoading(true);
 
-    const formData = new FormData(event.currentTarget);
-    const response = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        username: String(formData.get("username") ?? "").trim(),
-        password: String(formData.get("password") ?? ""),
-      }),
-    });
+    try {
+      const formData = new FormData(event.currentTarget);
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: String(formData.get("username") ?? "").trim(),
+          password: String(formData.get("password") ?? ""),
+        }),
+      });
 
-    const payload = (await response.json()) as { error?: string };
-    setIsLoading(false);
+      let payload: { error?: string } = {};
+      try {
+        payload = (await response.json()) as { error?: string };
+      } catch {
+        // servidor retornou corpo não-JSON (ex: erro 500 inesperado)
+      }
 
-    if (!response.ok) {
-      setError(payload.error || "Não foi possível iniciar sessão.");
-      return;
+      if (!response.ok) {
+        setError(payload.error || `Erro ${response.status}: Não foi possível iniciar sessão.`);
+        return;
+      }
+
+      router.replace("/");
+    } catch {
+      setError("Sem resposta do servidor. Verifique a ligação.");
+    } finally {
+      setIsLoading(false);
     }
-
-    router.replace("/");
   }
 
   return (

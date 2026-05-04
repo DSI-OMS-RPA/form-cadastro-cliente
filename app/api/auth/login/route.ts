@@ -14,17 +14,25 @@ export async function POST(request: Request) {
   const username = String(payload.username ?? "").trim();
   const password = String(payload.password ?? "");
 
-  const user = await authenticate(username, password);
+  let user;
+  try {
+    user = await authenticate(username, password);
+  } catch (err) {
+    console.error("[login] Erro ao autenticar:", err);
+    return NextResponse.json(
+      { error: "Erro interno ao verificar credenciais." },
+      { status: 500 }
+    );
+  }
 
   if (!user) {
-    // Regista tentativa falhada (sem expor palavra-passe)
     await recordAuditEvent({
       event: "login_failed",
       username: username || "(em branco)",
       name: "-",
       role: "-",
       request,
-    }).catch(() => {}); // nunca bloqueia a resposta
+    }).catch(() => {});
 
     return NextResponse.json(
       { error: "Utilizador ou palavra-passe inválidos." },
@@ -32,7 +40,15 @@ export async function POST(request: Request) {
     );
   }
 
-  await createSession(user);
+  try {
+    await createSession(user);
+  } catch (err) {
+    console.error("[login] Erro ao criar sessão:", err);
+    return NextResponse.json(
+      { error: "Erro interno ao criar sessão." },
+      { status: 500 }
+    );
+  }
 
   await recordAuditEvent({
     event: "login",
