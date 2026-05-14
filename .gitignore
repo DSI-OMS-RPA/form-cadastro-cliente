@@ -9,3 +9,4 @@ storage/*.jsonl
 screenshot-*.png
 .env
 .claude/
+AGENTS.md
