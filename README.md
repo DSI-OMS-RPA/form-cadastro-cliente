@@ -229,11 +229,20 @@ GET   /api/audit              Registo de acessos (admin)
 Defina no ficheiro `.env` (não versionar):
 
 ```env
-DATABASE_URL="file:./storage/cadastro.db"
+DATABASE_URL="file:../storage/cadastro.db"
 AUTH_SECRET="string-longa-e-aleatoria-para-producao"
+COOKIE_SECURE="false"
 ```
 
-`AUTH_SECRET` assina os cookies de sessão. Se omitido, usa um valor fixo de desenvolvimento — **não seguro em produção**.
+| Variável | Descrição | Valor padrão |
+|---|---|---|
+| `DATABASE_URL` | Caminho da base de dados SQLite | Obrigatório |
+| `AUTH_SECRET` | Chave para assinar cookies de sessão | Valor fixo de desenvolvimento (não seguro) |
+| `COOKIE_SECURE` | Requer HTTPS para enviar cookies | `false` (rede interna HTTP) |
+
+> ⚠️ Em produção, `AUTH_SECRET` DEVE ser uma string longa e aleatória. Defina `COOKIE_SECURE="true"` apenas quando HTTPS estiver configurado.
+
+Para configurações de deployment, veja a seção [Deployment em Produção](#deployment-em-produção).
 
 ## Como Executar
 
@@ -264,11 +273,114 @@ Por padrão, `dev` e `start` escutam em `0.0.0.0:3000` (acessível na rede local
 |---|---|
 | `npm run dev` | Servidor de desenvolvimento |
 | `npm run build` | Build de produção |
-| `npm run start` | Servidor de produção |
+| `npm run start` | Servidor de produção (cria DB se não existir) |
 | `npm run hash-passwords` | Encripta passwords em texto simples no `users.json` |
 | `npm run db:migrate` | Aplica migrações Prisma |
 | `npm run db:studio` | Interface visual da base de dados |
 | `npm run db:seed` | Importa dados legados do JSONL para SQLite |
+
+## Deployment em Produção
+
+### Pré-requisitos
+
+Antes de fazer deploy, garanta que:
+
+1. **O ficheiro `.env` está configurado** com as variáveis de ambiente corretas
+2. **A pasta `storage/` existe** no servidor e tem permissões de escrita
+3. **O banco de dados SQLite é criado automaticamente** no primeiro arranque
+
+### Variáveis de Ambiente Necessárias
+
+Crie um ficheiro `.env` na raiz do projeto (não versionado):
+
+```env
+DATABASE_URL="file:../storage/cadastro.db"
+AUTH_SECRET="uma-string-longa-e-aleatoria-para-producao"
+COOKIE_SECURE="true"
+```
+
+> ⚠️ **Importante:** Em produção, `AUTH_SECRET` DEVE ser uma string longa e aleatória para manter as sessões seguras. Se omitido, usa um valor fixo de desenvolvimento (não seguro).
+
+### Método 1: Script de Deploy (Recomendado)
+
+Execute o script de deployment que cuida de tudo:
+
+```bash
+bash deploy.sh
+npm start
+```
+
+O script `deploy.sh`:
+- Define as variáveis de ambiente
+- Instala dependências
+- Gera cliente Prisma
+- Sincroniza/cria o banco de dados
+- Compila a aplicação
+
+### Método 2: Deployment com PM2
+
+1. Instale PM2 globalmente:
+```bash
+npm install -g pm2
+```
+
+2. Copie `.env` para o servidor
+
+3. Crie um ficheiro `ecosystem.config.js` na raiz:
+```javascript
+module.exports = {
+  apps: [{
+    name: 'cadastro-ftth',
+    script: 'npm',
+    args: 'start',
+    env: {
+      NODE_ENV: 'production',
+      DATABASE_URL: 'file:../storage/cadastro.db',
+      AUTH_SECRET: 'mude-isto-para-um-valor-secreto-aleatorio'
+    }
+  }]
+};
+```
+
+4. Inicie com PM2:
+```bash
+pm2 start ecosystem.config.js
+pm2 save
+```
+
+### Troubleshooting
+
+#### Erro: "Environment variable not found: DATABASE_URL"
+
+**Causa:** O ficheiro `.env` não foi copiado para o servidor ou as variáveis de ambiente não foram definidas.
+
+**Solução:**
+```bash
+# Copiar .env para o servidor
+scp .env usuario@servidor:/path/to/projeto/
+
+# Ou definir manualmente
+export DATABASE_URL="file:../storage/cadastro.db"
+npm start
+```
+
+#### Erro: "ENOENT: no such file or directory ... cadastro.db"
+
+**Causa:** A pasta `storage/` não existe ou o banco não foi criado.
+
+**Solução:**
+```bash
+mkdir -p storage/
+npm start
+```
+
+O banco é criado automaticamente na primeira execução. A versão atualizada de `npm start` inclui `prisma db push` que sincroniza o schema e cria o banco se necessário.
+
+#### Erro: "Unexpected end of JSON input" no cliente
+
+**Causa:** Geralmente consequência do servidor não estar a responder corretamente devido a erros de inicialização (DATABASE_URL ou banco não definido).
+
+**Solução:** Verifique os logs do servidor para erros de Prisma/banco de dados. Applique as soluções acima.
 
 ## GPS e HTTPS
 
