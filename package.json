@@ -15,7 +15,7 @@
     "hash-passwords": "node scripts/hash-passwords.mjs"
   },
   "dependencies": {
-    "@prisma/client": "^6.19.3",
+    "@prisma/client": "^7.8.0",
     "leaflet": "^1.9.4",
     "lucide-react": "latest",
     "next": "^16.2.6",

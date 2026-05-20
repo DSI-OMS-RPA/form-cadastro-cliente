@@ -14,10 +14,10 @@ A aplicação permite ao operador registar uma residência/prédio, capturar e a
 - **React** e **TypeScript**
 - **Tailwind CSS**
 - **Leaflet** — mapa satélite e ajuste manual do pin GPS
-- **SQLite** via **Prisma ORM** — base de dados local em ficheiro `.db`
+- **PostgreSQL** (Neon) via **Prisma ORM** — base de dados cloud
 - Autenticação local com cookie assinado (HMAC-SHA256)
 - Passwords encriptadas com **scrypt** (crypto nativo do Node.js)
-- Sem dependências de base de dados externa
+- Deploy cloud-ready, sem dependências locais de base de dados
 
 ## Funcionalidades
 
@@ -153,11 +153,13 @@ Hierarquia: **Ilha → Concelho → Zona/Cidade → Bairro**
 
 ## Base de Dados
 
-Os registos são guardados numa base de dados SQLite local gerida pelo Prisma:
+Os registos são guardados numa base de dados **PostgreSQL** (Neon) gerida pelo Prisma:
 
-```text
-storage/cadastro.db
+```env
+DATABASE_URL="postgresql://<user>:<password>@<host>/<database>?sslmode=require"
 ```
+
+> **Nota:** O parâmetro `sslmode=require` é obrigatório para Neon e outros provedores cloud.
 
 ### Tabelas
 
@@ -183,11 +185,9 @@ Para explorar a base de dados visualmente:
 npm run db:studio
 ```
 
-A pasta `storage/` está no `.gitignore` para evitar versionar dados reais.
-
 ### Migração do JSONL legado
 
-Se existir um ficheiro `storage/registrations.jsonl` de uma versão anterior, pode importar os dados para a base de dados com:
+Se existirem dados antigos em JSONL, pode importar para PostgreSQL após configurar a `DATABASE_URL`:
 
 ```bash
 npm run db:seed
@@ -229,14 +229,14 @@ GET   /api/audit              Registo de acessos (admin)
 Defina no ficheiro `.env` (não versionar):
 
 ```env
-DATABASE_URL="file:../storage/cadastro.db"
+DATABASE_URL="postgresql://<user>:<password>@<host>/<database>?sslmode=require"
 AUTH_SECRET="string-longa-e-aleatoria-para-producao"
 COOKIE_SECURE="false"
 ```
 
 | Variável | Descrição | Valor padrão |
 |---|---|---|
-| `DATABASE_URL` | Caminho da base de dados SQLite | Obrigatório |
+| `DATABASE_URL` | URL de conexão PostgreSQL (Neon) | Obrigatório |
 | `AUTH_SECRET` | Chave para assinar cookies de sessão | Valor fixo de desenvolvimento (não seguro) |
 | `COOKIE_SECURE` | Requer HTTPS para enviar cookies | `false` (rede interna HTTP) |
 
@@ -285,16 +285,15 @@ Por padrão, `dev` e `start` escutam em `0.0.0.0:3000` (acessível na rede local
 
 Antes de fazer deploy, garanta que:
 
-1. **O ficheiro `.env` está configurado** com as variáveis de ambiente corretas
-2. **A pasta `storage/` existe** no servidor e tem permissões de escrita
-3. **O banco de dados SQLite é criado automaticamente** no primeiro arranque
+1. **O ficheiro `.env` está configurado** com as variáveis de ambiente corretas (ver exemplo acima)
+2. **A base de dados PostgreSQL (Neon) está criada** e acessível
 
 ### Variáveis de Ambiente Necessárias
 
 Crie um ficheiro `.env` na raiz do projeto (não versionado):
 
 ```env
-DATABASE_URL="file:../storage/cadastro.db"
+DATABASE_URL="postgresql://<user>:<password>@<host>/<database>?sslmode=require"
 AUTH_SECRET="uma-string-longa-e-aleatoria-para-producao"
 COOKIE_SECURE="true"
 ```
@@ -314,7 +313,7 @@ O script `deploy.sh`:
 - Define as variáveis de ambiente
 - Instala dependências
 - Gera cliente Prisma
-- Sincroniza/cria o banco de dados
+- Sincroniza o schema na base PostgreSQL
 - Compila a aplicação
 
 ### Método 2: Deployment com PM2
@@ -335,7 +334,7 @@ module.exports = {
     args: 'start',
     env: {
       NODE_ENV: 'production',
-      DATABASE_URL: 'file:../storage/cadastro.db',
+      DATABASE_URL: 'postgresql://<user>:<password>@<host>/<database>?sslmode=require',
       AUTH_SECRET: 'mude-isto-para-um-valor-secreto-aleatorio'
     }
   }]
@@ -360,25 +359,22 @@ pm2 save
 scp .env usuario@servidor:/path/to/projeto/
 
 # Ou definir manualmente
-export DATABASE_URL="file:../storage/cadastro.db"
+export DATABASE_URL="postgresql://<user>:<password>@<host>/<database>?sslmode=require"
 npm start
 ```
 
-#### Erro: "ENOENT: no such file or directory ... cadastro.db"
+#### Erro: "database does not exist" ou "connection refused"
 
-**Causa:** A pasta `storage/` não existe ou o banco não foi criado.
+**Causa:** A base de dados PostgreSQL não existe, credenciais erradas ou firewall.
 
 **Solução:**
-```bash
-mkdir -p storage/
-npm start
-```
-
-O banco é criado automaticamente na primeira execução. A versão atualizada de `npm start` inclui `prisma db push` que sincroniza o schema e cria o banco se necessário.
+- Confirme a existência da base de dados no Neon
+- Verifique user/password/host
+- Confirme que o parâmetro `sslmode=require` está presente
 
 #### Erro: "Unexpected end of JSON input" no cliente
 
-**Causa:** Geralmente consequência do servidor não estar a responder corretamente devido a erros de inicialização (DATABASE_URL ou banco não definido).
+**Causa:** Geralmente consequência do servidor não estar a responder corretamente devido a erros de inicialização (DATABASE_URL ou base de dados não definida).
 
 **Solução:** Verifique os logs do servidor para erros de Prisma/banco de dados. Applique as soluções acima.
 
