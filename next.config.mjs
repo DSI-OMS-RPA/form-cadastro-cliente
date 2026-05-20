@@ -10,7 +10,7 @@ const nextConfig = {
   },
   // Permite acesso pelo IP da rede local em modo dev
   // Adicionar aqui o IP do servidor para testes de desenvolvimento
-  allowedDevOrigins: ["192.168.87.59"],
+  allowedDevOrigins: ["192.168.87.59"]
 };
 
 export default nextConfig;
